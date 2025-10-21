@@ -1,53 +1,92 @@
 name: Update Dependencies
-
 on:
-  workflow_dispatch: # Allows you to manually trigger the workflow
+  push:
+    branches:
+      - main
 
 jobs:
   update-dependencies:
     runs-on: ubuntu-latest
-
     steps:
+      - name: Start Energy Measurement
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          task: start-measurement
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.8'
-
       - name: Install Poetry
         run: pip install poetry
-
+      - id: measurement-4
+        name: Record Measurement After Install Poetry
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Install Poetry
+          task: get-measurement
       - name: Update dependencies
-        run: |
-          poetry install
+        run: 'poetry install
+
           poetry update
+
           poetry lock
 
+          '
+      - id: measurement-6
+        name: Record Measurement After Update dependencies
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Update dependencies
+          task: get-measurement
       - name: Commit changes
-        run: |
-          git config --local user.email yolov5.deepsort.pytorch@gmail.com
+        run: 'git config --local user.email yolov5.deepsort.pytorch@gmail.com
+
           git config --local user.name mikel-brostrom
+
           git add .
+
           git commit -m "Update dependencies"
 
+          '
+      - id: measurement-8
+        name: Record Measurement After Commit changes
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Commit changes
+          task: get-measurement
       - name: Push changes
         run: git push origin HEAD:dependabot/update-dependencies
-
+      - id: measurement-10
+        name: Record Measurement After Push changes
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Push changes
+          task: get-measurement
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          body: This is an automated pull request to update dependencies.
           branch: dependabot/update-dependencies
-          title: "Update dependencies"
-          body: "This is an automated pull request to update dependencies."
           delete-branch: true
-
-      # - name: Auto-merge Pull Request
-      #   uses: pascalgn/automerge-action@v0.16.3
-      #   with:
-      #     token: ${{ secrets.GITHUB_TOKEN }}
-      #     merge-method: squash
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          title: Update dependencies
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - id: display-measurement
+        name: Display Energy Results
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          task: display-results
+      - name: Save Total Energy Consumption Data
+        run: echo '${{ steps.final-measurement.outputs.data-total-json }}' > total_energy_consumption.json
+      - name: Upload Energy Consumption Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: total-energy-consumption
+          path: total_energy_consumption.json

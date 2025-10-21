@@ -1,20 +1,43 @@
 name: Close stale issues
 on:
-  schedule:
-    - cron: "0 0 * * *"  # At the end of every day
+  push:
+    branches:
+      - main
 
 jobs:
   stale:
     runs-on: ubuntu-latest
     steps:
+      - name: Start Energy Measurement
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          task: start-measurement
       - uses: actions/stale@v9
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          stale-issue-message: |
-            👋 Hello, this issue has been automatically marked as stale because it has not had recent activity. Please note it will be closed if no further activity occurs.
-            Feel free to inform us of any other **issues** you discover or **feature requests** that come to mind in the future. Pull Requests (PRs) are also always welcomed!
-          stale-pr-message: 'This issue has been automatically marked as stale because it has not had recent activity. It will be closed if no further activity occurs.'
-          days-before-stale: 10
           days-before-close: 3
-          exempt-issue-labels: 'documentation,tutorial'
-          operations-per-run: 100  # The maximum number of operations per run, used to control rate limiting.
+          days-before-stale: 10
+          exempt-issue-labels: documentation,tutorial
+          operations-per-run: 100
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          stale-issue-message: "\U0001F44B Hello, this issue has been automatically\
+            \ marked as stale because it has not had recent activity. Please note\
+            \ it will be closed if no further activity occurs.\nFeel free to inform\
+            \ us of any other **issues** you discover or **feature requests** that\
+            \ come to mind in the future. Pull Requests (PRs) are also always welcomed!\n"
+          stale-pr-message: This issue has been automatically marked as stale because
+            it has not had recent activity. It will be closed if no further activity
+            occurs.
+      - id: display-measurement
+        name: Display Energy Results
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          task: display-results
+      - name: Save Total Energy Consumption Data
+        run: echo '${{ steps.final-measurement.outputs.data-total-json }}' > total_energy_consumption.json
+      - name: Upload Energy Consumption Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: total-energy-consumption
+          path: total_energy_consumption.json

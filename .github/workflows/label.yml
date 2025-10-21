@@ -1,73 +1,60 @@
 name: Label issues
-
 on:
-  issues:
-    types:
-      - opened
-      - reopened
+  push:
+    branches:
+      - main
 
 jobs:
   label_issues:
-    name: "Issue: add labels"
     if: ${{ github.event.action == 'opened' || github.event.action == 'reopened' }}
-    runs-on: ubuntu-latest
+    name: 'Issue: add labels'
     permissions:
       issues: write
-
+    runs-on: ubuntu-latest
     steps:
+      - name: Start Energy Measurement
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          task: start-measurement
       - name: Label new issues
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            // Combine title + body
-            const title = context.payload.issue.title  || ''
-            const body  = context.payload.issue.body   || ''
-            const content = `${title}\n${body}`
-
-            // Always start with triage
-            const labels = ['triage']
-
-            // Map each directory/tracker → regex
-            const mapping = {
-              'reid'           : /\b(?:appearance|re[- ]?id|re[- ]?identification)\b/i,
-              'kf'             : /\b(?:kf|kalman[- ]?filter)s?\b/i,
-              'postprocessing' : /\bpostprocessing\b/i,
-
-              // engine-related categories
-              'engine'         : /\b(engine|cli|detectors|track|val)\b/i,
-              'tuning'         : /\b(?:tuning|hyperparameter(?:s)?|evolution|evolve)\b/i,
-              'evaluation'     : /\b(?:evaluation|eval(?:uation)?|val(?:idation)?)\b/i,
-              'tracking'       : /\b(?:track(?:ing)?|track)\b/i,
-
-              // individual tracker labels
-              'boosttrack'     : /\bboosttrack\b/i,
-              'botsort'        : /\bbotsort\b/i,
-              'bytetrack'      : /\bbytetrack\b/i,
-              'deepocsort'     : /\bdeepocsort\b/i,
-              'hybridsort'     : /\bhybridsort\b/i,
-              'ocsort'         : /\bocsort\b/i,
-              'strongsort'     : /\bstrongsort\b/i,
-              'tracktrack'     : /\btracktrack\b/i,
-
-              // per-dataset labels
-              'datasets'       : /\dataset?\b/i,
-              'mot17'          : /\bMOT17\b/i,
-              'mot20'          : /\bMOT20\b/i,
-              'dancetrack'     : /\bDanceTrack\b/i,
-            }
-
-            // Add any matching labels
-            for (const [label, regex] of Object.entries(mapping)) {
-              if (regex.test(content)) {
-                labels.push(label)
-              }
-            }
-
-            // Apply them in one call
-            await github.rest.issues.addLabels({
-              owner:        context.repo.owner,
-              repo:         context.repo.repo,
-              issue_number: context.issue.number,
-              labels
-            })
+          script: "// Combine title + body\nconst title = context.payload.issue.title\
+            \  || ''\nconst body  = context.payload.issue.body   || ''\nconst content\
+            \ = `${title}\\n${body}`\n\n// Always start with triage\nconst labels\
+            \ = ['triage']\n\n// Map each directory/tracker \u2192 regex\nconst mapping\
+            \ = {\n  'reid'           : /\\b(?:appearance|re[- ]?id|re[- ]?identification)\\\
+            b/i,\n  'kf'             : /\\b(?:kf|kalman[- ]?filter)s?\\b/i,\n  'postprocessing'\
+            \ : /\\bpostprocessing\\b/i,\n\n  // engine-related categories\n  'engine'\
+            \         : /\\b(engine|cli|detectors|track|val)\\b/i,\n  'tuning'   \
+            \      : /\\b(?:tuning|hyperparameter(?:s)?|evolution|evolve)\\b/i,\n\
+            \  'evaluation'     : /\\b(?:evaluation|eval(?:uation)?|val(?:idation)?)\\\
+            b/i,\n  'tracking'       : /\\b(?:track(?:ing)?|track)\\b/i,\n\n  // individual\
+            \ tracker labels\n  'boosttrack'     : /\\bboosttrack\\b/i,\n  'botsort'\
+            \        : /\\bbotsort\\b/i,\n  'bytetrack'      : /\\bbytetrack\\b/i,\n\
+            \  'deepocsort'     : /\\bdeepocsort\\b/i,\n  'hybridsort'     : /\\bhybridsort\\\
+            b/i,\n  'ocsort'         : /\\bocsort\\b/i,\n  'strongsort'     : /\\\
+            bstrongsort\\b/i,\n  'tracktrack'     : /\\btracktrack\\b/i,\n\n  // per-dataset\
+            \ labels\n  'datasets'       : /\\dataset?\\b/i,\n  'mot17'          :\
+            \ /\\bMOT17\\b/i,\n  'mot20'          : /\\bMOT20\\b/i,\n  'dancetrack'\
+            \     : /\\bDanceTrack\\b/i,\n}\n\n// Add any matching labels\nfor (const\
+            \ [label, regex] of Object.entries(mapping)) {\n  if (regex.test(content))\
+            \ {\n    labels.push(label)\n  }\n}\n\n// Apply them in one call\nawait\
+            \ github.rest.issues.addLabels({\n  owner:        context.repo.owner,\n\
+            \  repo:         context.repo.repo,\n  issue_number: context.issue.number,\n\
+            \  labels\n})\n"
+      - id: display-measurement
+        name: Display Energy Results
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          task: display-results
+      - name: Save Total Energy Consumption Data
+        run: echo '${{ steps.final-measurement.outputs.data-total-json }}' > total_energy_consumption.json
+      - name: Upload Energy Consumption Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: total-energy-consumption
+          path: total_energy_consumption.json
