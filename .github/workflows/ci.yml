@@ -2,7 +2,7 @@ name: BoxMOT CI
 on:
   push:
     branches:
-      - main
+      - master
 
 jobs:
   summary:
