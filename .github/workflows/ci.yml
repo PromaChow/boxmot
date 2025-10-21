@@ -2,45 +2,52 @@ name: BoxMOT CI
 on:
   push:
     branches:
-      - master
+      - main
 
 jobs:
-  summary:
+  check-failures:
+    if: always()
+    needs:
+      - tracking-methods
+      - mot-metrics-benchmark
+      - evolution
+      - export-reid-models
+      - tests
+      - tracking-with-pose
+      - tracking-with-seg
+      - tracking-with-yolos
     runs-on: ubuntu-latest
     steps:
       - name: Start Energy Measurement
-        id: measurement-start
         uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
         with:
           json-output: true
           task: start-measurement
-
       - name: Prepare environment variables
         run: |
           echo "tracking-methods_STATUS=${{ needs.tracking-methods.result }}" >> $GITHUB_ENV
-          echo "mot-metrics_STATUS=${{ needs.mot-metrics-benchmark.result }}" >> $GITHUB_ENV
+          echo "mot-metrics_STATUS=${{ needs.mot-metrics.result }}" >> $GITHUB_ENV
           echo "evolution_STATUS=${{ needs.evolution.result }}" >> $GITHUB_ENV
-          echo "export-reid-models_STATUS=${{ needs.export-reid-models.result }}" >> $GITHUB_ENV
+          echo "export-reid-models_STATUS=${{ needs.export-reid-modelsn.result }}" >> $GITHUB_ENV
           echo "tests_STATUS=${{ needs.tests.result }}" >> $GITHUB_ENV
           echo "tracking-with-pose_STATUS=${{ needs.tracking-with-pose.result }}" >> $GITHUB_ENV
           echo "tracking-with-seg_STATUS=${{ needs.tracking-with-seg.result }}" >> $GITHUB_ENV
           echo "tracking-with-yolos_STATUS=${{ needs.tracking-with-yolos.result }}" >> $GITHUB_ENV
-
-      - id: measurement-env
+      - id: measurement-2
         name: Record Measurement After Prepare environment variables
         uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
         with:
           json-output: true
           label: Prepare environment variables
           task: get-measurement
-
       - name: Check for failures and create summary
         run: |
           summary=""
           failed=false
+          # Print all environment variables, grep for those ending with _STATUS, then loop
           for var in $(printenv | grep '_STATUS$'); do
-            job_status="${var##*=}"
-            job_name="${var%%=*}"
+            job_status="${var##*=}"  # Extract the status part
+            job_name="${var%%=*}"  # Extract the job name part
             if [[ "$job_status" != "success" ]]; then
               summary+="$job_name failed with status: $job_status\n"
               failed=true
@@ -50,58 +57,42 @@ jobs:
             summary="All jobs succeeded."
           fi
           echo "Summary: $summary"
-
-      - id: measurement-final
+      - id: measurement-4
         name: Record Measurement After Check for failures and create summary
         uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
         with:
           json-output: true
           label: Check for failures and create summary
           task: get-measurement
-
       - id: display-measurement
         name: Display Energy Results
         uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
         with:
           json-output: true
           task: display-results
-
       - name: Save Total Energy Consumption Data
-        run: echo '${{ steps.measurement-final.outputs.data-total-json }}' > total_energy_consumption.json
-
+        run: echo '${{ steps.final-measurement.outputs.data-total-json }}' > total_energy_consumption.json
       - name: Upload Energy Consumption Artifact
         uses: actions/upload-artifact@v4
         with:
           name: total-energy-consumption
           path: total_energy_consumption.json
-
   evolution:
     outputs:
       status: ${{ job.status }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version:
-          - "3.9"
-          - "3.12"
-    timeout-minutes: 50
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Start Energy Measurement
-        id: evo-measurement-start
         uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
         with:
           json-output: true
           task: start-measurement
-
       - uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           cache: pip
           python-version: ${{ matrix.python-version }}
-
       - name: Install requirements
         run: |
           python -m pip install --upgrade pip setuptools wheel uv
@@ -109,121 +100,575 @@ jobs:
           uv sync --extra yolo --extra evolve
         continue-on-error: true
         shell: bash
-
-      - id: evo-measurement-install
+      - id: measurement-4
         name: Record Measurement After Install requirements
         uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
         with:
           json-output: true
           label: Install requirements
           task: get-measurement
-
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
+          # reuse first set of generated det and prod
           boxmot tune --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --n-trials 3 --tracking-method strongsort --source ./assets/MOT17-mini/train --ci
         continue-on-error: true
-
-      - id: evo-measurement-tune
-        name: Record Measurement After Evolve set of parameters
+      - id: measurement-6
+        name: Record Measurement After Evolve set of parameters for selected tracking method
         uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
         with:
           json-output: true
           label: Evolve set of parameters for selected tracking method
           task: get-measurement
-
-      - id: evo-display-measurement
+      - id: display-measurement
         name: Display Energy Results
         uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
         with:
           json-output: true
           task: display-results
-
       - name: Save Total Energy Consumption Data
-        run: echo '${{ steps.evo-measurement-tune.outputs.data-total-json }}' > total_energy_consumption.json
-
+        run: echo '${{ steps.final-measurement.outputs.data-total-json }}' > total_energy_consumption.json
       - name: Upload Energy Consumption Artifact
         uses: actions/upload-artifact@v4
         with:
           name: total-energy-consumption
           path: total_energy_consumption.json
-
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+        python-version:
+          - "3.9"
+          - "3.12"
+    timeout-minutes: 50
   export-reid-models:
+    outputs:
+      status: ${{ job.status }}
     runs-on: ubuntu-latest
     steps:
       - name: Start Energy Measurement
-        id: export-measurement-start
         uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
         with:
           json-output: true
           task: start-measurement
-
-      - uses: actions/checkout@v4
-
-      - name: Export ReID models
-        run: |
-          python scripts/export_reid_models.py
-        continue-on-error: true
-
-      - id: export-measurement-final
-        name: Record Measurement After Export ReID models
+      - id: set_result
+        run: echo "::set-output name=result::success"
+      - id: measurement-2
+        name: Record Measurement After Step
         uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
         with:
           json-output: true
-          label: Export ReID models
+          label: Step
           task: get-measurement
-
-      - id: export-display-measurement
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          sed -i -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          python -m pip install --upgrade pip setuptools wheel uv
+          uv sync --all-extras
+          # needed for TFLite export
+          sudo apt-get install flatbuffers-compiler
+          wget https://github.com/PINTO0309/onnx2tf/releases/download/1.16.31/flatc.tar.gz
+          tar -zxvf flatc.tar.gz
+          sudo chmod +x flatc
+          sudo mv flatc /usr/bin/
+        continue-on-error: true
+      - id: measurement-6
+        name: Record Measurement After Install dependencies
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Install dependencies
+          task: get-measurement
+      - name: Test export models
+        run: |
+          source .venv/bin/activate
+          boxmot export --include torchscript --include onnx --include openvino --include tflite --device cpu --batch-size 3 --dynamic
+        continue-on-error: true
+      - id: measurement-8
+        name: Record Measurement After Test export models
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Test export models
+          task: get-measurement
+      - name: Check export TFLite models
+        run: |
+          ls /home/runner/work/boxmot/boxmot/boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/
+        continue-on-error: true
+      - id: measurement-10
+        name: Record Measurement After Check export TFLite models
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Check export TFLite models
+          task: get-measurement
+      - env:
+          IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
+        name: Test inference on exported models
+        run: |
+          source .venv/bin/activate
+          boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17.torchscript    --imgsz 320 --source $IMG
+          boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17.onnx           --imgsz 320 --source $IMG
+          boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17_openvino_model --imgsz 320 --source $IMG
+          boxmot track --reid-model boxmot/engine/weights/osnet_x0_25_msmt17_saved_model/osnet_x0_25_msmt17_float32.tflite --source $IMG --imgsz 320
+        continue-on-error: true
+      - id: measurement-12
+        name: Record Measurement After Test inference on exported models
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Test inference on exported models
+          task: get-measurement
+      - id: display-measurement
         name: Display Energy Results
         uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
         with:
           json-output: true
           task: display-results
-
       - name: Save Total Energy Consumption Data
-        run: echo '${{ steps.export-measurement-final.outputs.data-total-json }}' > total_energy_consumption.json
-
+        run: echo '${{ steps.final-measurement.outputs.data-total-json }}' > total_energy_consumption.json
       - name: Upload Energy Consumption Artifact
         uses: actions/upload-artifact@v4
         with:
           name: total-energy-consumption
           path: total_energy_consumption.json
-
   mot-metrics-benchmark:
-    runs-on: ubuntu-latest
+    env:
+      TRACKERS: ocsort bytetrack botsort deepocsort strongsort boosttrack hybridsort
+    outputs:
+      status: ${{ job.status }}
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Start Energy Measurement
-        id: mot-measurement-start
         uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
         with:
           json-output: true
           task: start-measurement
-
       - uses: actions/checkout@v4
-
-      - name: Benchmark MOT metrics
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          cache: pip
+          python-version: ${{ matrix.python-version }}
+      - name: Install requirements
         run: |
-          python scripts/mot_metrics_benchmark.py
+          sed -i -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          sudo apt-get install -y jq
+          python -m pip install --upgrade pip setuptools wheel uv
+          uv sync --extra yolo
         continue-on-error: true
-
-      - id: mot-measurement-final
-        name: Record Measurement After Benchmark MOT metrics
+        shell: bash
+      - id: measurement-4
+        name: Record Measurement After Install requirements
         uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
         with:
           json-output: true
-          label: Benchmark MOT metrics
+          label: Install requirements
           task: get-measurement
-
-      - id: mot-display-measurement
+      - name: Generate detections and embeddings
+        run: |
+          source .venv/bin/activate
+          boxmot generate --source ./assets/MOT17-mini/train  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
+        continue-on-error: true
+      - id: measurement-6
+        name: Record Measurement After Generate detections and embeddings
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Generate detections and embeddings
+          task: get-measurement
+      - name: Evaluation and Summarize Results
+        run: |
+          source .venv/bin/activate
+          echo "Format,Status✔,HOTA,MOTA,IDF1" > results.csv
+          for tracker in $TRACKERS; do
+            if boxmot eval --yolo-model yolov8n.pt --reid-model osnet_x0_25_msmt17.pt --tracking-method $tracker --verbose --source ./assets/MOT17-mini/train --ci; then
+              STATUS="✅"
+            else
+              STATUS="❌"
+            fi
+            cat ${tracker}_output.json
+            # Extract the relevant parts of the JSON
+            HOTA=$(jq -r '.HOTA' ${tracker}_output.json)
+            MOTA=$(jq -r '.MOTA' ${tracker}_output.json)
+            IDF1=$(jq -r '.IDF1' ${tracker}_output.json)
+            TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+            echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> results.csv
+          done
+          # Sort the results by HOTA in descending order
+          (head -n 1 results.csv && tail -n +2 results.csv | sort -t, -k3 -nr) > sorted_results.csv
+          # Create a pretty table from the sorted_results.csv file
+          column -s, -t sorted_results.csv > pretty_results.txt
+        continue-on-error: true
+        shell: bash
+      - id: measurement-8
+        name: Record Measurement After Evaluation and Summarize Results
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Evaluation and Summarize Results
+          task: get-measurement
+      - name: Show Results
+        run: |
+          cat pretty_results.txt
+        continue-on-error: true
+        shell: bash
+      - id: measurement-10
+        name: Record Measurement After Show Results
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Show Results
+          task: get-measurement
+      - id: display-measurement
         name: Display Energy Results
         uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
         with:
           json-output: true
           task: display-results
-
       - name: Save Total Energy Consumption Data
-        run: echo '${{ steps.mot-measurement-final.outputs.data-total-json }}' > total_energy_consumption.json
-
+        run: echo '${{ steps.final-measurement.outputs.data-total-json }}' > total_energy_consumption.json
+      - name: Upload Energy Consumption Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: total-energy-consumption
+          path: total_energy_consumption.json
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+        python-version:
+          - "3.9"
+          - "3.12"
+    timeout-minutes: 50
+  tests:
+    outputs:
+      status: ${{ job.status }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start Energy Measurement
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          task: start-measurement
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          sed -i -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          python -m pip install --upgrade pip uv
+        continue-on-error: true
+      - id: measurement-4
+        name: Record Measurement After Step
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Step
+          task: get-measurement
+      - name: Test export models
+        run: |
+          uv sync --all-extras
+          uv run boxmot export \
+            --include torchscript --include onnx --include openvino --include tflite \
+            --device cpu --batch-size 3 --dynamic
+        continue-on-error: true
+      - id: measurement-6
+        name: Record Measurement After Test export models
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Test export models
+          task: get-measurement
+      - env:
+          COVERAGE_FAIL_UNDER: 25
+          PACKAGE_DIR: boxmot
+        name: Pytest tests
+        run: |
+          uv sync --all-extras
+          uv run python -m pytest --cov="$PACKAGE_DIR" --cov-report=html -v -s tests
+          uv run python -m coverage report --fail-under="$COVERAGE_FAIL_UNDER"
+        continue-on-error: true
+      - id: measurement-8
+        name: Record Measurement After Pytest tests
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Pytest tests
+          task: get-measurement
+      - id: display-measurement
+        name: Display Energy Results
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          task: display-results
+      - name: Save Total Energy Consumption Data
+        run: echo '${{ steps.final-measurement.outputs.data-total-json }}' > total_energy_consumption.json
+      - name: Upload Energy Consumption Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: total-energy-consumption
+          path: total_energy_consumption.json
+  tracking-methods:
+    outputs:
+      status: ${{ job.status }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Start Energy Measurement
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          task: start-measurement
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          cache: pip
+          python-version: ${{ matrix.python-version }}
+      - name: Install requirements
+        run: |
+          python -m pip install --upgrade pip setuptools wheel uv
+          sed -i -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          uv sync --extra yolo
+        continue-on-error: true
+        shell: bash
+      - id: measurement-4
+        name: Record Measurement After Install requirements
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Install requirements
+          task: get-measurement
+      - name: Generate detections and embeddings
+        run: |
+          source .venv/bin/activate
+          boxmot generate --source ./assets/MOT17-mini/train --yolo-model yolov10n.pt --imgsz 320 --reid-model osnet_x0_25_msmt17.pt
+        continue-on-error: true
+      - id: measurement-6
+        name: Record Measurement After Generate detections and embeddings
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Generate detections and embeddings
+          task: get-measurement
+      - name: Run tracking method
+        run: |
+          source .venv/bin/activate
+          for tracker in $TRACKERS; do
+            boxmot track  --yolo-model yolov10n.pt --reid-model osnet_x0_25_msmt17.pt --imgsz 320 --tracking-method $tracker
+          done
+        continue-on-error: true
+      - id: measurement-8
+        name: Record Measurement After Run tracking method
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Run tracking method
+          task: get-measurement
+      - id: display-measurement
+        name: Display Energy Results
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          task: display-results
+      - name: Save Total Energy Consumption Data
+        run: echo '${{ steps.final-measurement.outputs.data-total-json }}' > total_energy_consumption.json
+      - name: Upload Energy Consumption Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: total-energy-consumption
+          path: total_energy_consumption.json
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-14
+        python-version:
+          - "3.12"
+    timeout-minutes: 50
+  tracking-with-pose:
+    outputs:
+      status: ${{ job.status }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start Energy Measurement
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          task: start-measurement
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          sed -i -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          python -m pip install --upgrade pip setuptools wheel uv
+          uv sync --extra yolo
+        continue-on-error: true
+      - id: measurement-4
+        name: Record Measurement After Step
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Step
+          task: get-measurement
+      - env:
+          IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
+        name: Test tracking with pose models
+        run: |
+          source .venv/bin/activate
+          boxmot track --yolo-model weights/yolov8n-pose.pt --imgsz 320 --source $IMG
+        continue-on-error: true
+      - id: measurement-6
+        name: Record Measurement After Test tracking with pose models
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Test tracking with pose models
+          task: get-measurement
+      - id: display-measurement
+        name: Display Energy Results
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          task: display-results
+      - name: Save Total Energy Consumption Data
+        run: echo '${{ steps.final-measurement.outputs.data-total-json }}' > total_energy_consumption.json
+      - name: Upload Energy Consumption Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: total-energy-consumption
+          path: total_energy_consumption.json
+  tracking-with-seg:
+    outputs:
+      status: ${{ job.status }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start Energy Measurement
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          task: start-measurement
+      - id: set_result
+        run: echo "::set-output name=result::success"
+      - id: measurement-2
+        name: Record Measurement After Step
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Step
+          task: get-measurement
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          sed -i -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          python -m pip install --upgrade pip setuptools wheel uv
+          uv sync --extra yolo
+        continue-on-error: true
+      - id: measurement-6
+        name: Record Measurement After Install dependencies
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Install dependencies
+          task: get-measurement
+      - env:
+          IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
+        name: Test tracking with seg models
+        run: |
+          source .venv/bin/activate
+          boxmot track --tracking-method bytetrack --yolo-model yolov8n-seg.pt --source $IMG
+        continue-on-error: true
+      - id: measurement-8
+        name: Record Measurement After Test tracking with seg models
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Test tracking with seg models
+          task: get-measurement
+      - id: display-measurement
+        name: Display Energy Results
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          task: display-results
+      - name: Save Total Energy Consumption Data
+        run: echo '${{ steps.final-measurement.outputs.data-total-json }}' > total_energy_consumption.json
+      - name: Upload Energy Consumption Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: total-energy-consumption
+          path: total_energy_consumption.json
+  tracking-with-yolos:
+    outputs:
+      status: ${{ job.status }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start Energy Measurement
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          task: start-measurement
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          sed -i -e 's/index = "torch-gpu"/index = "torch-cpu"/g' pyproject.toml
+          python -m pip install --upgrade pip setuptools wheel uv
+          # Export so that setuptools picks up clang instead of gcc
+          echo "CC=clang" >> $GITHUB_ENV
+          echo "CXX=clang++" >> $GITHUB_ENV
+          uv sync --extra yolox-build-deps
+          uv sync --extra yolo
+        continue-on-error: true
+      - id: measurement-4
+        name: Record Measurement After Step
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Step
+          task: get-measurement
+      - env:
+          IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
+        name: Test tracking with pose models
+        run: |
+          source .venv/bin/activate
+          uv pip list
+          boxmot track --yolo-model yolov10n.pt --imgsz 320 --source $IMG
+          boxmot track --yolo-model yolox_n.pt --imgsz 320 --source $IMG
+          boxmot track --yolo-model rf-detr-base.pt --imgsz 320 --source $IMG
+        continue-on-error: true
+      - id: measurement-6
+        name: Record Measurement After Test tracking with pose models
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          label: Test tracking with pose models
+          task: get-measurement
+      - id: display-measurement
+        name: Display Energy Results
+        uses: green-coding-solutions/eco-ci-energy-estimation@862050e4f01f65b1436e5eca18ba4bd85562f0de
+        with:
+          json-output: true
+          task: display-results
+      - name: Save Total Energy Consumption Data
+        run: echo '${{ steps.final-measurement.outputs.data-total-json }}' > total_energy_consumption.json
       - name: Upload Energy Consumption Artifact
         uses: actions/upload-artifact@v4
         with:
